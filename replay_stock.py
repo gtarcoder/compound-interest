@@ -58,19 +58,19 @@ class DailyStockPriceInfo(object):
 
 class HoldingStockInfo(object):
     __slots__ = ["stock", "buy_in_value", "buy_in_price", "current_value",
-                 "profit_rate", "current_count", "current_profit", "sell_out_profit", "profit_rate"]
+                 "profit_rate", "current_count", "current_profit", "sell_out_value", "profit_rate"]
 
     def __init__(self, stock, buy_in_price, buy_in_value=PER_STOCK_BUY_IN_VALUE):
         self.stock = stock
         self.current_value = self.buy_in_value = buy_in_value
         self.current_count = buy_in_value / buy_in_price  # 股票数量
         self.buy_in_price = buy_in_price
-        self.current_profit = self.sell_out_profit = 0
+        self.current_profit = self.sell_out_value = 0
 
     def calculate_profit(self, cur_price):
         self.current_value = self.current_count * cur_price
         self.current_profit = self.current_value - \
-            self.buy_in_value + self.sell_out_profit
+            self.buy_in_value + self.sell_out_value
         self.profit_rate = self.current_profit / self.buy_in_value
 
     def buy_in(self, buy_in_price, buy_in_value):
@@ -82,18 +82,18 @@ class HoldingStockInfo(object):
 
     def sell_out(self, sell_out_price, sell_out_ratio=1.0):
         # 此次卖出的收益
-        sell_out_profit = self.current_count * sell_out_ratio * sell_out_price
+        sell_out_value = self.current_count * sell_out_ratio * sell_out_price
         # 卖出后剩下的数量和价值
         self.current_count = (1.0 - sell_out_ratio) * self.current_count
         self.current_value = self.current_count * sell_out_price
-        self.sell_out_profit += sell_out_profit
-        return sell_out_profit
+        self.sell_out_value += sell_out_value
+        return sell_out_value
 
     def __str__(self):
         return """stock: %s, buy_in_price: %.2f, buy_in_value: %s, current_value: %s,
-            sell_out_profit: %.2f, current_profit: %.2f, profit_rate: %.2f""" % \
+            sell_out_value: %.2f, current_profit: %.2f, profit_rate: %.2f""" % \
             (self.stock, self.buy_in_price, self.buy_in_value, self.current_value,
-             self.sell_out_profit, self.current_profit, 100.0*self.profit_rate) + "%"
+             self.sell_out_value, self.current_profit, 100.0*self.profit_rate) + "%"
 
 
 class StockMarketHelper(object):
@@ -199,10 +199,10 @@ class InvestmentInfo(object):
                 stock_code, sell_out_date))
         holding_info = self.holding_stocks.get(stock_code)
         # 当天的开盘价卖出
-        sell_out_profit = holding_info.sell_out(
+        sell_out_value = holding_info.sell_out(
             price_info.opening_price, sell_out_ratio)
         # 收益落袋
-        self.cash_value += sell_out_profit
+        self.cash_value += sell_out_value
         # 计算当前股票收益
         holding_info.calculate_profit(price_info.opening_price)
         print("SELL-OUT, stock info: %s,  date: %s, sell out ratio: %.2f, cash_value: %.2f" %
