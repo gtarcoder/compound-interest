@@ -11,6 +11,7 @@ from openpyxl.chart import (
     LineChart,
     Reference,
 )
+from openpyxl import drawing
 from openpyxl.chart.axis import DateAxis
 
 INIT_TOTAL_VALUE = 2000000.0
@@ -124,13 +125,13 @@ class InvestmentInfo(object):
 
     def __init__(self, init_value):
         self.stock_value = 0
-        self.cash_value = init_value
-        self.init_value = init_value
+        self.cash_value = self.total_value = self.init_value = init_value
         self.holding_stocks = dict()
         self.profit_history = []
         self.total_value_list = [init_value] * TOTAL_VALUE_LIST_SIZE
         self.moving_avg_history = dict()
         self.reduced_stocks = set()
+        self.profit_rate = 0
         self.cur_date = EARLIEST_DATE
 
     def __str__(self):
@@ -264,19 +265,26 @@ def save_investment_info_to_excel(sheet, start_row, end_row, investment_info):
                       start_row + 1, TOTAL_PROFIT_RATE_COLUMN, end_row))
 
 
-def draw_profit_history(wb, profit_history):
+def draw_profit_history(wb, investment_info):
     if PROFIT_HISTORY_SHEET in wb.sheetnames:
         wb.remove(wb[PROFIT_HISTORY_SHEET])
     wb.create_sheet(PROFIT_HISTORY_SHEET)
     ws = wb[PROFIT_HISTORY_SHEET]
     ws["A1"] = "日期"
     ws["B1"] = "总资金"
-    ws["C1"] = "收益率"
-    for idx in range(0, len(profit_history)):
+    ws["C1"] = "MA5"
+    ws["D1"] = "MA10"
+    ws["E1"] = "MA20"
+    ws["F1"] = "收益率"
+    for idx in range(0, len(investment_info.profit_history)):
+        date = investment_info.profit_history[idx][0]
         ws["A%d" %
-            (idx + 2)] = datetime.strptime(profit_history[idx][0], "%Y/%m/%d").date()
-        ws["B%d" % (idx + 2)] = profit_history[idx][1]
-        ws["C%d" % (idx + 2)] = profit_history[idx][2]
+            (idx + 2)] = datetime.strptime(date, "%Y/%m/%d").date()
+        ws["B%d" % (idx + 2)] = investment_info.profit_history[idx][1]
+        ws["F%d" % (idx + 2)] = investment_info.profit_history[idx][2]
+        ws["C%d" % (idx + 2)] = investment_info.moving_avg_history[date][5]
+        ws["D%d" % (idx + 2)] = investment_info.moving_avg_history[date][10]
+        ws["E%d" % (idx + 2)] = investment_info.moving_avg_history[date][20]
 
     total_rows = len(ws["A"])
     asset_line = LineChart()
@@ -289,7 +297,7 @@ def draw_profit_history(wb, profit_history):
     asset_line.x_axis.number_format = "mm/dd"
     asset_line.x_axis.majorTimeUnit = "days"
 
-    data = Reference(ws, min_col=2, min_row=1, max_col=2,
+    data = Reference(ws, min_col=2, min_row=1, max_col=5,
                      max_row=total_rows)
     asset_line.add_data(data, titles_from_data=True)
 
@@ -297,14 +305,28 @@ def draw_profit_history(wb, profit_history):
                       max_row=total_rows)
     asset_line.set_categories(dates)
 
+    # Style the lines
+    s1 = asset_line.series[0]
+    s1.graphicalProperties.line = drawing.line.LineProperties(
+        solidFill=drawing.colors.ColorChoice(prstClr="green"))
+
+    s2 = asset_line.series[1]
+    s2.graphicalProperties.line = drawing.line.LineProperties(
+        solidFill=drawing.colors.ColorChoice(prstClr="red"))
+
+    s3 = asset_line.series[2]
+    s3.graphicalProperties.line = drawing.line.LineProperties(
+        solidFill=drawing.colors.ColorChoice(prstClr="black"))
+    s4 = asset_line.series[3]
+    s4.graphicalProperties.line = drawing.line.LineProperties(
+        solidFill=drawing.colors.ColorChoice(prstClr="blue"))
+
     ws.add_chart(asset_line, "E10")
 
 
 def process_daily_stock(investment_info, sheet, cur_date, ref_investment_info=None):
     investment_info.cur_date = cur_date  # 记录当前时间
     start_row, end_row = get_row_range(sheet, cur_date)
-    # print("### date: %s, start_row: %d, end_row: %d" %
-    #       (cur_date, start_row, end_row))
     if start_row == -1:
         return
     cur_holding_stocks = []
@@ -375,15 +397,17 @@ def process_stock_account(investment_info, excel, year, ref_investment_info=None
             try:
                 ws = wb[sheet_name]
             except Exception as e:
-                print("Failed to get sheet, error: %s" % e)
+                date = date + timedelta(days=1)
                 continue
             if len(ws[DATE_COLUMN]) <= 2:  # 该sheet 为空
+                date = date + timedelta(days=1)
                 continue
+
             process_daily_stock(investment_info, ws,
-                                date, ref_investment_info)
+                                date.strftime("%Y/%m/%d"), ref_investment_info)
             date = date + timedelta(days=1)
 
-        draw_profit_history(wb, investment_info.profit_history)
+        draw_profit_history(wb, investment_info)
         # save serialized investment info to excel
         if SERIALIZED_INVESTMENT_INFO_SHEET not in wb.sheetnames:
             wb.create_sheet(SERIALIZED_INVESTMENT_INFO_SHEET)
@@ -410,18 +434,11 @@ def init_investment_info(excel):
 @ click.option("--year", default=2021, help="year of stock info")
 def process_stock_info(excel, year):
     mock_account_info = init_investment_info(excel)
-    print("#### inited mock account info: ", mock_account_info)
     process_stock_account(mock_account_info, excel, year)
 
     excel_new = ".".join(excel.split(".")[:-1]) + "-new.xlsx"
-    try:
-        os.remove(excel_new)
-    except OSError as e:
-        if e.errno != 2:
-            raise RuntimeError("Failed to remove file %s" % e)
-
     real_account_info = init_investment_info(excel_new)
-    if real_account_info.cur_date == EARLIEST_DATE:
+    if real_account_info.cur_date == EARLIEST_DATE:  # 最开始直接从 excel 拷贝得到 excel-new
         shutil.copyfile(excel, excel_new)
 
     process_stock_account(real_account_info, excel_new,
