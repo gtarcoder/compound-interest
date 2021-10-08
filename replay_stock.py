@@ -321,7 +321,7 @@ def draw_profit_history(wb, investment_info):
     s4.graphicalProperties.line = drawing.line.LineProperties(
         solidFill=drawing.colors.ColorChoice(prstClr="blue"))
 
-    ws.add_chart(asset_line, "E10")
+    ws.add_chart(asset_line, "M20")
 
 
 def process_daily_stock(investment_info, sheet, cur_date, ref_investment_info=None):
